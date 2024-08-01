@@ -1,0 +1,15 @@
+{
+    "files.associations": {
+        "stm32f1xx.h": "c",
+        "stm32f103xg.h": "c",
+        "stm32f103xb.h": "c",
+        "ppp_init.h": "c",
+        "pinout.h": "c",
+        "stm32f1xx_hal.h": "c",
+        "core_cm3.h": "c",
+        "stm32f1xx_hal_conf.h": "c",
+        "stm32f1xx_hal_exti.h": "c",
+        "system_stm32f1xx.h": "c",
+        "lora_sx1276.h": "c"
+    }
+}

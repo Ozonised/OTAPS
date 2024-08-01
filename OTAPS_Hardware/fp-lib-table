@@ -1,0 +1,6 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "LoRa_Ra-02_module")(type "KiCad")(uri "${KIPRJMOD}/LoRa_Ra-02_module.pretty")(options "")(descr ""))
+  (lib (name "BluePill")(type "KiCad")(uri "${KIPRJMOD}/BluePill.pretty")(options "")(descr ""))
+  (lib (name "Screw_Terminal_01x03")(type "KiCad")(uri "${KIPRJMOD}/Screw_Terminal_01x03.pretty")(options "")(descr ""))
+)
