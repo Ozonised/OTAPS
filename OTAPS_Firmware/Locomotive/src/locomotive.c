@@ -81,19 +81,6 @@ static void extractPayLoadData(Locomotive *loco, uint8_t *payLoad)
 
 void updateLocomotiveState(Locomotive *loco)
 {
-    uint8_t remainingNodes = 0;
-
-    switch (loco->dir)
-    {
-    case TO_HIGHER_NODE:
-        remainingNodes = TOTAL_NO_OF_NODES - loco->commNode->nodeNo;
-        break;
-    case TO_LOWER_NODE:
-        remainingNodes = loco->commNode->nodeNo - 1;
-        break;
-    default:
-        break;
-    }
 
     switch (loco->signalData[0])
     {
@@ -202,6 +189,7 @@ void postInit(void)
     lora_mode_receive_single(&lora);
 
     prevMillis = HAL_GetTick();
+
     while (!validPayLoad)
     {
         currentMillis = HAL_GetTick();
@@ -242,6 +230,7 @@ void postInit(void)
 
         switch (locomotive.state)
         {
+        // add PWM control
         case GO:
             /* code */
             break;
@@ -254,24 +243,30 @@ void postInit(void)
         default:
             break;
         }
-        
-        if (locomotive.signalData[0] != GREEN && prevSignalState == GREEN)
+
+        // if the current communicating node signal turned red but was previously green, double yellow or yellow
+        // the locomotive as reached the current communicating signal.
+        if (locomotive.signalData[0] == RED && (prevSignalState == GREEN || prevSignalState == DOUBLE_YELLOW || prevSignalState == YELLOW))
         {
-            // switching communication node
+            // switching to next communication node
             switch (locomotive.dir)
             {
             case TO_HIGHER_NODE:
-                locomotive.commNode = locomotive.commNode->next;
+                if (locomotive.commNode->next != NULL)
+                    locomotive.commNode = locomotive.commNode->next;
                 break;
 
             case TO_LOWER_NODE:
-                locomotive.commNode = locomotive.commNode->prev;
+                if (locomotive.commNode->prev != NULL)
+                    locomotive.commNode = locomotive.commNode->prev;
                 break;
 
             default:
                 break;
             }
         }
+
+        prevSignalState = locomotive.signalData[0];
         validPayLoad = false;
     }
 }

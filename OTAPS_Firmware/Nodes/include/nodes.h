@@ -10,7 +10,6 @@
 #define SLAVE_NODE 0
 #define MASTER_NODE 1
 
-
 // Total number of nodes is ODD
 #if (TOTAL_NO_OF_NODES % 2)
 
