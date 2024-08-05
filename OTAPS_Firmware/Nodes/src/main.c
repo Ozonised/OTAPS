@@ -3,17 +3,15 @@
 
 #include "nodes.h"
 
-
 int main(void)
 {
     HAL_Init();
-    nodeInitialisation();
+    nodeInit();
     while (1)
     {
-        postInit();
+        node();
     }
 }
-
 
 // overwrite printf() output to send via ITM (SWO)
 int _write(int file, char *data, int len)

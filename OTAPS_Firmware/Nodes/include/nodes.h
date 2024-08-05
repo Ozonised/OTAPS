@@ -97,7 +97,7 @@
 
 extern lora_sx1276 lora;
 
-void nodeInitialisation(void);
-void postInit(void);
+void nodeInit(void);
+void node(void);
 
 #endif

@@ -96,11 +96,11 @@ static void signalStateInit(void)
     red.next = &yellow;
     red.state = RED;
 
-    doubleYellow.next = &doubleYellow;
-    doubleYellow.state = YELLOW;
+    doubleYellow.next = &green;
+    doubleYellow.state = DOUBLE_YELLOW;
 
-    yellow.next = &green;
-    yellow.state = DOUBLE_YELLOW;
+    yellow.next = &doubleYellow;
+    yellow.state = YELLOW;
 
     green.next = NULL;
     green.state = GREEN;
@@ -321,6 +321,8 @@ static void updateSignalState(void)
         case RED:
             if (thisNode.axleCount == thisNode.next->axleCount)
             {
+                // if train is moving towards higher node and the axle counter from the next node is equal to this node
+                // than the train has passed this signal and the signal after
                 if (temp.next != NULL)
                     currentSignalState = temp.next;
                 axleCounter = 0;
@@ -331,6 +333,7 @@ static void updateSignalState(void)
         case YELLOW:
             if (thisNode.next->signal == YELLOW)
             {
+                // if next node is yellow than this node should now be double yellow
                 if (temp.next != NULL)
                     currentSignalState = temp.next;
             }
@@ -340,29 +343,23 @@ static void updateSignalState(void)
         case DOUBLE_YELLOW:
             if (thisNode.next->signal == DOUBLE_YELLOW)
             {
+                // if the next node is double yellow then this node should now be green
                 if (temp.next != NULL)
+                {
                     currentSignalState = temp.next;
+                }   
             }
             break;
 
         case GREEN:
-            if (thisNode.next->signal == DOUBLE_YELLOW)
-            {
-                if (temp.next != NULL)
-                    currentSignalState = temp.next;
-                else
-                {
-                    trainDir = TRAIN_DIR_NOT_KNOWN;
-                }
-            }
+            trainDir = TRAIN_DIR_NOT_KNOWN;
             break;
 
         default:
             break;
         }
 
-        // if train is moving towards higher node and the axle counter from the next node is equal to this node
-        // than the train has passed this signal and the signal after
+
 
         break;
 
@@ -372,6 +369,8 @@ static void updateSignalState(void)
         case RED:
             if (thisNode.axleCount == thisNode.prev->axleCount)
             {
+                // if train is moving towards lower node and the axle counter from the prev node is equal to this node
+                // than the train has passed this signal and the signal before
                 if (temp.next != NULL)
                     currentSignalState = temp.next;
                 axleCounter = 0;
@@ -397,15 +396,7 @@ static void updateSignalState(void)
             break;
 
         case GREEN:
-            if (thisNode.prev->signal == DOUBLE_YELLOW)
-            {
-                if (temp.next != NULL)
-                    currentSignalState = temp.next;
-                else
-                {
-                    trainDir = TRAIN_DIR_NOT_KNOWN;
-                }
-            }
+            trainDir = TRAIN_DIR_NOT_KNOWN;
             break;
 
         default:
@@ -491,136 +482,150 @@ void LoRaReInit(void)
     lora_set_signal_bandwidth(&lora, communicatingNode.bandwidth);
     lora_set_spreading_factor(&lora, communicatingNode.spreadingFactor);
 
-    // lora_set_rx_symbol_timeout(&lora, LORA_SYMBOL_LENGTH);
-    // lora_set_implicit_header_mode(&lora);
 }
 
-#if (NODE_TYPE == SLAVE_NODE)
-
-void nodeInitialisation(void)
+void nodeInit()
 {
-    bool timeout = false, validPayLoad = false;
-    uint8_t error;
-
     signalStateInit();
 
     // turn all the signal lights ON
     HAL_GPIO_WritePin(LED_SIGNAL_GPIO_PORT, LED_SIGNAL_RED_GPIO_PIN | LED_SIGNAL_YELLOW1_GPIO_PIN | LED_SIGNAL_GREEN_GPIO_PIN | LED_SIGNAL_YELLOW2_GPIO_PIN, GPIO_PIN_SET);
 
     LoRaReInit();
+}
 
-    // while node is not ready enter receive mode
+#if (NODE_TYPE == SLAVE_NODE)
+
+void node(void)
+{
+    bool validPayLoad = false;
+    uint8_t error;
+    uint8_t timeout = LORA_UP_TOA + 50;
+
+    // enter receive mode
     // if packet received from master
     // extract the data and check is node is ready
     // enter transmit mode and transmit data to master
     // if starting node or ending node then stay in receive mode
     // else switch communication node no and frequency
     // once node is ready set the signal leds
-    while (thisNode.nodeReady == false)
+
+    lora_mode_receive_continuous(&lora);
+    // HAL_Delay(100);
+    prevMillis = HAL_GetTick();
+
+    while (!validPayLoad)
     {
-        // check for packet if not timeout
-        // lora_set_payload_length(&lora, PAYLOAD_LENGTH);
-        lora_mode_receive_continuous(&lora);
-        // HAL_Delay(100);
-        prevMillis = HAL_GetTick();
+        //     currentMillis = HAL_GetTick();
 
-        while (!validPayLoad)
+        //     if (currentMillis - prevMillis > TIMEOUT)
+        //     {
+        //         // timeout = true;
+        //         break;
+        //     }
+
+        if (lora_is_packet_available(&lora))
         {
-            //     currentMillis = HAL_GetTick();
+            lora_receive_packet(&lora, rxPayLoad, PAYLOAD_LENGTH, &error);
 
-            //     if (currentMillis - prevMillis > TIMEOUT)
-            //     {
-            //         // timeout = true;
-            //         break;
-            //     }
-
-            if (lora_is_packet_available(&lora))
+            if (error == LORA_OK)
             {
-                lora_receive_packet(&lora, rxPayLoad, PAYLOAD_LENGTH, &error);
-
-                if (error == LORA_OK)
+                // if packet received from the correct node
+                if (isPayLoadValid(rxPayLoad, &communicatingNode))
                 {
-                    // if packet received from the correct node
-                    if (isPayLoadValid(rxPayLoad, &communicatingNode))
-                    {
-                        LOG_RX_PAYLOAD();
-                        lora_mode_standby(&lora);
-                        validPayLoad = true;
-                    }
+                    LOG_RX_PAYLOAD();
+                    lora_mode_standby(&lora);
+                    validPayLoad = true;
                 }
             }
         }
-        // bool xyz = false;
-        if (validPayLoad == true)
-        {
-            extractPayLoadData(rxPayLoad, PAYLOAD_LENGTH, communicatingNode.nodeNo);
-            thisNode.nodeReady = isNodeReady();
+    }
+    if (validPayLoad == true)
+    {
+        extractPayLoadData(rxPayLoad, PAYLOAD_LENGTH, communicatingNode.nodeNo);
+        thisNode.nodeReady = isNodeReady();
+
 #if (THIS_NODE_NUM > 1 && THIS_NODE_NUM < TOTAL_NO_OF_NODES)
-            // HAL_Delay(100);
+
 #endif
-            updateTxPayload(txPayLoad);
-            error = lora_send_packet_blocking(&lora, txPayLoad, PAYLOAD_LENGTH, TIMEOUT);
+        updateTxPayload(txPayLoad);
+        error = lora_send_packet_blocking(&lora, txPayLoad, PAYLOAD_LENGTH, TIMEOUT);
+        if (error == LORA_OK)
+            HAL_GPIO_TogglePin(LED_BUILTIN_GPIO_PORT, LED_BUILTIN_GPIO_PIN);
 
-            if (error == LORA_OK)
-                HAL_GPIO_TogglePin(LED_BUILTIN_GPIO_PORT, LED_BUILTIN_GPIO_PIN);
+        printf("Tx Error: %d\n", error);
 
-            printf("Tx Error: %d\n", error);
-
-            LOG_TX_PAYLOAD();
+        LOG_TX_PAYLOAD();
 #if (THIS_NODE_NUM > 1 && THIS_NODE_NUM < TOTAL_NO_OF_NODES)
 
-            if (communicatingNode.nodeNo == THIS_NODE_NUM + 1)
-            {
-                communicatingNode.nodeNo = THIS_NODE_NUM - 1;
-                communicatingNode.spreadingFactor = LORA_DOWN_SF;
-                communicatingNode.bandwidth = LORA_DOWN_BANDWIDTH;
-            }
-            else
-            {
-                communicatingNode.nodeNo = THIS_NODE_NUM + 1;
-                communicatingNode.spreadingFactor = LORA_UP_SF;
-                communicatingNode.bandwidth = LORA_UP_BANDWIDTH;
-            }
-            lora_set_signal_bandwidth(&lora, communicatingNode.bandwidth);
-            lora_set_spreading_factor(&lora, communicatingNode.spreadingFactor);
+        if (communicatingNode.nodeNo == THIS_NODE_NUM + 1)
+        {
+            communicatingNode.nodeNo = THIS_NODE_NUM - 1;
+            communicatingNode.spreadingFactor = LORA_DOWN_SF;
+            communicatingNode.bandwidth = LORA_DOWN_BANDWIDTH;
+        }
+        else
+        {
+            communicatingNode.nodeNo = THIS_NODE_NUM + 1;
+            communicatingNode.spreadingFactor = LORA_UP_SF;
+            communicatingNode.bandwidth = LORA_UP_BANDWIDTH;
+        }
+        lora_set_signal_bandwidth(&lora, communicatingNode.bandwidth);
+        lora_set_spreading_factor(&lora, communicatingNode.spreadingFactor);
 
 #else
-            // HAL_Delay(240);
+        // HAL_Delay(240);
 #endif
-            validPayLoad = false;
-        }
-
-        // if (timeout == false && error == LORA_OK)
-        // {
-        //     updateTxPayload(txPayLoad);
-        //     error = lora_send_packet_blocking(&lora, txPayLoad, PAYLOAD_LENGTH, TIMEOUT);
-        //     if (error == LORA_OK)
-        //         HAL_GPIO_TogglePin(LED_BUILTIN_GPIO_PORT, LED_BUILTIN_GPIO_PIN);
-        // }
-
-        // timeout = false;
+        validPayLoad = false;
     }
-    setSignalLeds();
+
+    // if (timeout == false && error == LORA_OK)
+    // {
+    //     updateTxPayload(txPayLoad);
+    //     error = lora_send_packet_blocking(&lora, txPayLoad, PAYLOAD_LENGTH, TIMEOUT);
+    //     if (error == LORA_OK)
+    //         HAL_GPIO_TogglePin(LED_BUILTIN_GPIO_PORT, LED_BUILTIN_GPIO_PIN);
+    // }
+
+    // timeout = false;
+    if (thisNode.nodeReady)
+    {
+        updateSignalState();
+        setSignalLeds();
+    }
 }
 
-void postInit(void)
+#endif
+
+#if (NODE_TYPE == MASTER_NODE)
+
+void node(void)
 {
     bool validPayLoad = false, timeout = false;
     uint8_t error;
 
+    // while node is not ready
+    // transmit data
+    // enter receive mode and wait for slave reponse
+    // extract the data from the slave response and check is node is ready
+    // switch communication node no and frequency
+    // once node is ready set the signal leds
+
+    updateTxPayload(txPayLoad);
+    error = lora_send_packet_blocking(&lora, txPayLoad, PAYLOAD_LENGTH, TIMEOUT);
+    printf("TX Error: %d\n", error);
+    LOG_TX_PAYLOAD();
     // check for packet if not timeout
-    lora_set_payload_length(&lora, PAYLOAD_LENGTH);
-    lora_mode_receive_single(&lora);
-
+    lora_mode_receive_continuous(&lora);
     prevMillis = HAL_GetTick();
-
-    // stay in receive until a valid payload has been acquired or timeout has occured
     while (!validPayLoad)
     {
         currentMillis = HAL_GetTick();
 
         if (currentMillis - prevMillis > TIMEOUT)
         {
+            lora_mode_standby(&lora);
+            printf("timeout\n");
             timeout = true;
             break;
         }
@@ -631,19 +636,18 @@ void postInit(void)
 
             if (error == LORA_OK)
             {
+                LOG_RX_PAYLOAD();
                 // check for valid payload
-                if (rxPayLoad[0] == communicatingNode.nodeNo)
+                if (isPayLoadValid(rxPayLoad, &communicatingNode))
                 {
+                    lora_mode_standby(&lora);
                     validPayLoad = true;
-                }
-                else
-                {
-                    lora_mode_receive_single(&lora);
                 }
             }
             else
             {
-                lora_mode_receive_single(&lora);
+                printf("Error: %d\n", error);
+                LOG_RX_PAYLOAD();
             }
         }
     }
@@ -651,172 +655,7 @@ void postInit(void)
     if (validPayLoad)
     {
         extractPayLoadData(rxPayLoad, PAYLOAD_LENGTH, communicatingNode.nodeNo);
-        updateSignalState();
-        setSignalLeds();
-        validPayLoad = false;
-    }
-
-    if (timeout == false && error == LORA_OK)
-    {
-        updateTxPayload(txPayLoad);
-        error = lora_send_packet_blocking(&lora, txPayLoad, PAYLOAD_LENGTH, TIMEOUT);
-        if (error == LORA_OK)
-            HAL_GPIO_TogglePin(LED_BUILTIN_GPIO_PORT, LED_BUILTIN_GPIO_PIN);
-    }
-
-#if (THIS_NODE_NUM > 1 && THIS_NODE_NUM < TOTAL_NO_OF_NODES)
-
-    if (communicatingNode.nodeNo == THIS_NODE_NUM + 1)
-    {
-        communicatingNode.nodeNo = THIS_NODE_NUM - 1;
-        communicatingNode.spreadingFactor = LORA_DOWN_SF;
-        communicatingNode.bandwidth = LORA_DOWN_BANDWIDTH;
-    }
-    else
-    {
-        communicatingNode.nodeNo = THIS_NODE_NUM + 1;
-        communicatingNode.spreadingFactor = LORA_UP_SF;
-        communicatingNode.bandwidth = LORA_UP_BANDWIDTH;
-    }
-
-#endif
-    timeout = false;
-}
-
-#endif
-
-#if (NODE_TYPE == MASTER_NODE)
-
-void nodeInitialisation(void)
-{
-    bool validPayLoad = false, timeout = false;
-    uint8_t error;
-
-    signalStateInit();
-
-    // turn all the signal lights ON
-    HAL_GPIO_WritePin(LED_SIGNAL_GPIO_PORT, LED_SIGNAL_RED_GPIO_PIN | LED_SIGNAL_YELLOW1_GPIO_PIN | LED_SIGNAL_GREEN_GPIO_PIN | LED_SIGNAL_YELLOW2_GPIO_PIN, GPIO_PIN_SET);
-
-    LoRaReInit();
-
-    // while node is not ready
-    // transmit data
-    // enter receive mode and wait for slave reponse
-    // extract the data from the slave response and check is node is ready
-    // switch communication node no and frequency
-    // once node is ready set the signal leds
-    while (thisNode.nodeReady == false)
-    {
-        updateTxPayload(txPayLoad);
-        error = lora_send_packet_blocking(&lora, txPayLoad, PAYLOAD_LENGTH, TIMEOUT);
-        // LOG_TX_PAYLOAD();
-        // check for packet if not timeout
-        prevMillis = HAL_GetTick();
-        lora_mode_receive_continuous(&lora);
-        while (!validPayLoad)
-        {
-            currentMillis = HAL_GetTick();
-
-            if (currentMillis - prevMillis > TIMEOUT)
-            {
-                lora_mode_standby(&lora);
-                timeout = true;
-                break;
-            }
-
-            if (lora_is_packet_available(&lora))
-            {
-                lora_receive_packet(&lora, rxPayLoad, PAYLOAD_LENGTH, &error);
-
-                if (error == LORA_OK)
-                {
-                    LOG_RX_PAYLOAD();
-                    // check for valid payload
-                    if (isPayLoadValid(rxPayLoad, &communicatingNode))
-                    {
-                        lora_mode_standby(&lora);
-                        validPayLoad = true;
-                    }
-                }
-                else
-                {
-                    printf("Error: %d\n", error);
-                    LOG_RX_PAYLOAD();
-                }
-            }
-        }
-
-        if (validPayLoad)
-        {
-            extractPayLoadData(rxPayLoad, PAYLOAD_LENGTH, communicatingNode.nodeNo);
-            thisNode.nodeReady = isNodeReady();
-            HAL_GPIO_TogglePin(LED_BUILTIN_GPIO_PORT, LED_BUILTIN_GPIO_PIN);
-            validPayLoad = false;
-        }
-
-        if (communicatingNode.nodeNo == THIS_NODE_NUM + 1)
-        {
-            communicatingNode.nodeNo = THIS_NODE_NUM - 1;
-        }
-        else
-        {
-            communicatingNode.nodeNo = THIS_NODE_NUM + 1;
-        }
-    }
-    setSignalLeds();
-}
-
-void postInit(void)
-{
-    bool validPayLoad = false;
-    uint8_t error;
-
-    updateTxPayload(txPayLoad);
-    lora_send_packet_blocking(&lora, txPayLoad, PAYLOAD_LENGTH, TIMEOUT);
-    // check for packet if not timeout
-    lora_set_payload_length(&lora, PAYLOAD_LENGTH);
-    lora_mode_receive_single(&lora);
-
-    prevMillis = HAL_GetTick();
-
-    while (!validPayLoad)
-    {
-        currentMillis = HAL_GetTick();
-
-        if (currentMillis - prevMillis > TIMEOUT)
-        {
-            // timeout = true;
-            break;
-        }
-
-        if (lora_is_packet_available(&lora))
-        {
-            lora_receive_packet(&lora, rxPayLoad, PAYLOAD_LENGTH, &error);
-
-            if (error == LORA_OK)
-            {
-                // check for valid payload
-                if (rxPayLoad[0] == communicatingNode.nodeNo)
-                {
-                    validPayLoad = true;
-                }
-                else
-                {
-                    lora_mode_receive_single(&lora);
-                }
-            }
-            else
-            {
-                lora_mode_receive_single(&lora);
-            }
-        }
-    }
-
-    if (validPayLoad)
-    {
-        extractPayLoadData(rxPayLoad, PAYLOAD_LENGTH, communicatingNode.nodeNo);
-        updateSignalState();
-        setSignalLeds();
+        thisNode.nodeReady = isNodeReady();
         HAL_GPIO_TogglePin(LED_BUILTIN_GPIO_PORT, LED_BUILTIN_GPIO_PIN);
         validPayLoad = false;
     }
@@ -829,10 +668,12 @@ void postInit(void)
     {
         communicatingNode.nodeNo = THIS_NODE_NUM + 1;
     }
-    // if packet received from master
-    // enter transmit mode and transmit data to master
-    // if starting node or ending node then wait for 200mS
-    // else switch to PNF and repeat
+
+    if (thisNode.nodeReady)
+    {
+        updateSignalState();
+        setSignalLeds();
+    }
 }
 
 #endif
@@ -865,7 +706,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
         if (currentSignalState->state != RED)
         {
-            currentSignalState->state = RED;
+            currentSignalState = &red;
 
             switch (thisNode.nodeNo)
             {

@@ -5,7 +5,7 @@
 #include <stm32f1xx_hal.h>
 #include "lora_sx1276.h"
 
-#define THIS_NODE_NUM 3
+#define THIS_NODE_NUM 1
 #define TOTAL_NO_OF_NODES 5
 
 #define NO_OF_NODES_TO_MONITOR 3
